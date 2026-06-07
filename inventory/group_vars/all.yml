@@ -1,0 +1,9 @@
+---
+# Kubernetes 集群版本 (使用 1.36 稳定版源)
+k8s_version: "1.36.*"
+
+# Pod 虚拟网络 CIDR，Flannel 默认要求使用 10.244.0.0/16
+pod_network_cidr: "10.244.0.0/16"
+
+# Service 虚拟网络 CIDR
+service_cidr: "10.96.0.0/12"
