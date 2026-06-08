@@ -1,0 +1,49 @@
+# Keepalived 配置文件（由 Ansible 自动生成，请勿手动修改）
+# 实现 VIP {{ ha_vip_ip }} 在多个 Master 节点间自动漂移
+#
+# 工作原理：
+#   - 每个 Master 节点运行 Keepalived，通过 VRRP 协议相互通信
+#   - priority 最高的节点持有 VIP（MASTER），其余节点为 BACKUP
+#   - 当 MASTER 的健康检查脚本检测到 HAProxy 异常时，降低优先级
+#   - 优先级最高的 BACKUP 节点自动接管 VIP（漂移）
+
+# 健康检查脚本：检测 HAProxy 是否正常
+vrrp_script check_haproxy {
+    script "/etc/keepalived/check_haproxy.sh"
+    interval 3      # 每 3 秒检查一次
+    weight  -20     # 检查失败时，优先级减 20（触发 VIP 漂移）
+    fall    2       # 连续 2 次失败才判定为宕机
+    rise    2       # 连续 2 次成功才判定为恢复
+}
+
+vrrp_instance VI_1 {
+    # 优先级最高的节点为 MASTER，其余为 BACKUP
+    state {{ 'MASTER' if keepalived_priority == (groups['kube_master'] | map('extract', hostvars, 'keepalived_priority') | max) else 'BACKUP' }}
+
+    interface {{ ha_vip_interface }}
+
+    # VRRP 虚拟路由 ID（同一集群的所有节点必须相同，范围 1-255）
+    virtual_router_id 51
+
+    # 本节点优先级（在 hosts.ini 的 keepalived_priority 中配置）
+    priority {{ keepalived_priority }}
+
+    # 通告间隔（秒）
+    advert_int 1
+
+    # VRRP 认证（防止同网段误接入）
+    authentication {
+        auth_type PASS
+        auth_pass k8sha
+    }
+
+    # 虚拟 IP 地址（VIP）
+    virtual_ipaddress {
+        {{ ha_vip_ip }}
+    }
+
+    # 绑定健康检查脚本
+    track_script {
+        check_haproxy
+    }
+}

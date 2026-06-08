@@ -1,0 +1,50 @@
+---
+# =============================================================================
+# CentOS / RHEL / Rocky Linux / AlmaLinux：通过 pkgs.k8s.io YUM 仓库安装
+# =============================================================================
+- name: Install required packages (RedHat)
+  dnf:
+    name:
+      - curl
+      - tar
+    state: present
+
+- name: Add Kubernetes YUM repository (RedHat)
+  yum_repository:
+    name: kubernetes
+    description: "Kubernetes - v{{ k8s_minor_version }}"
+    baseurl: "https://pkgs.k8s.io/core:/stable:/v{{ k8s_minor_version }}/rpm/"
+    enabled: yes
+    gpgcheck: yes
+    gpgkey: "https://pkgs.k8s.io/core:/stable:/v{{ k8s_minor_version }}/rpm/repodata/repomd.xml.key"
+    repo_gpgcheck: yes
+
+- name: Install kubelet, kubeadm, kubectl (RedHat)
+  dnf:
+    name:
+      - kubelet
+      - kubeadm
+      - kubectl
+    state: present
+    disable_excludes: kubernetes
+
+- name: Install python3-dnf-plugin-versionlock (RedHat)
+  dnf:
+    name: python3-dnf-plugin-versionlock
+    state: present
+
+- name: Hold kubernetes packages (prevent unintended upgrades) (RedHat)
+  community.general.yum_versionlock:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+  ignore_errors: yes  # 部分环境可能未安装 versionlock 插件
+
+- name: Enable and start kubelet (RedHat)
+  systemd:
+    name: kubelet
+    enabled: yes
+    state: started

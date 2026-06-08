@@ -1,17 +1,47 @@
 ---
-- name: Check if cluster is already initialized
+# =============================================================================
+# 判断是否为 HA 模式（kube_master 节点数 > 1 即为 HA）
+# =============================================================================
+- name: Set HA mode flag
+  set_fact:
+    ha_enabled: "{{ groups['kube_master'] | length > 1 }}"
+
+# =============================================================================
+# 第一个 Master 节点：初始化集群
+# =============================================================================
+- name: Check if cluster is already initialized (first master)
   stat:
     path: /etc/kubernetes/admin.conf
   register: k8s_admin_conf
 
-- name: Initialize Kubernetes cluster
+# --- 单 Master 初始化 ---
+- name: Initialize Kubernetes cluster (single master)
   command: >
     kubeadm init
     --pod-network-cidr={{ pod_network_cidr }}
     --service-cidr={{ service_cidr }}
   register: kubeadm_init
-  when: not k8s_admin_conf.stat.exists
+  when:
+    - not k8s_admin_conf.stat.exists
+    - not ha_enabled | bool
 
+# --- HA 多 Master 初始化（第一个 master 节点执行） ---
+- name: Initialize Kubernetes cluster (HA mode, first master)
+  command: >
+    kubeadm init
+    --control-plane-endpoint="{{ ha_vip_ip }}:{{ haproxy_port }}"
+    --upload-certs
+    --pod-network-cidr={{ pod_network_cidr }}
+    --service-cidr={{ service_cidr }}
+  register: kubeadm_init_ha
+  when:
+    - not k8s_admin_conf.stat.exists
+    - ha_enabled | bool
+    - inventory_hostname == groups['kube_master'][0]
+
+# =============================================================================
+# 配置 kubectl（所有 master 节点执行）
+# =============================================================================
 - name: Set home directory path
   set_fact:
     user_home: "{{ '/root' if ansible_user == 'root' else '/home/' + ansible_user }}"
@@ -33,18 +63,79 @@
     group: "{{ ansible_user }}"
     mode: '0600'
 
-- name: Deploy Flannel network
+# =============================================================================
+# 部署 Flannel 网络插件（仅在第一个 master 上运行一次）
+# =============================================================================
+- name: Deploy Flannel network plugin
   command: kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
   become_user: "{{ ansible_user }}"
   environment:
     KUBECONFIG: "{{ user_home }}/.kube/config"
-  when: not k8s_admin_conf.stat.exists
+  when:
+    - inventory_hostname == groups['kube_master'][0]
+    - not k8s_admin_conf.stat.exists
 
-- name: Generate join command for worker nodes
+# =============================================================================
+# 提取加入令牌（仅第一个 Master 执行，结果共享给所有节点）
+# =============================================================================
+
+# --- 提取 worker join 命令 ---
+- name: Generate worker join command
   command: kubeadm token create --print-join-command
   register: join_command_raw
   changed_when: false
+  when: inventory_hostname == groups['kube_master'][0]
 
-- name: Set join command as a fact
+- name: Share worker join command with all hosts
   set_fact:
     join_command: "{{ join_command_raw.stdout }}"
+  when: inventory_hostname == groups['kube_master'][0]
+
+- name: Propagate worker join command to other master nodes
+  set_fact:
+    join_command: "{{ hostvars[groups['kube_master'][0]]['join_command'] }}"
+  when: inventory_hostname != groups['kube_master'][0]
+
+# --- HA 模式：提取 certificate-key 用于额外 Master 加入 ---
+- name: Upload certificates and get certificate key (HA mode)
+  command: kubeadm init phase upload-certs --upload-certs
+  register: upload_certs_out
+  changed_when: false
+  when:
+    - ha_enabled | bool
+    - inventory_hostname == groups['kube_master'][0]
+
+- name: Extract certificate key from output (HA mode)
+  set_fact:
+    certificate_key: "{{ upload_certs_out.stdout_lines[-1] }}"
+  when:
+    - ha_enabled | bool
+    - inventory_hostname == groups['kube_master'][0]
+
+- name: Propagate certificate key to other master nodes (HA mode)
+  set_fact:
+    certificate_key: "{{ hostvars[groups['kube_master'][0]]['certificate_key'] }}"
+  when:
+    - ha_enabled | bool
+    - inventory_hostname != groups['kube_master'][0]
+
+# =============================================================================
+# HA 模式：其余 Master 节点加入控制平面
+# =============================================================================
+- name: Check if this master is already joined (HA mode)
+  stat:
+    path: /etc/kubernetes/admin.conf
+  register: k8s_admin_conf_extra
+  when:
+    - ha_enabled | bool
+    - inventory_hostname != groups['kube_master'][0]
+
+- name: Join extra master nodes to control plane (HA mode)
+  command: >
+    {{ hostvars[groups['kube_master'][0]]['join_command'] }}
+    --control-plane
+    --certificate-key {{ certificate_key }}
+  when:
+    - ha_enabled | bool
+    - inventory_hostname != groups['kube_master'][0]
+    - not k8s_admin_conf_extra.stat.exists

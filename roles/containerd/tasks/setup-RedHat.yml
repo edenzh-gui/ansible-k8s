@@ -1,0 +1,25 @@
+---
+# =============================================================================
+# CentOS / RHEL / Rocky Linux / AlmaLinux：通过 Docker 官方 YUM 仓库安装 containerd
+# =============================================================================
+- name: Install required packages for containerd (RedHat)
+  dnf:
+    name:
+      - curl
+      - gnupg2
+      - yum-utils
+    state: present
+
+- name: Add Docker YUM repository (RedHat)
+  get_url:
+    url: https://download.docker.com/linux/centos/docker-ce.repo
+    dest: /etc/yum.repos.d/docker-ce.repo
+    mode: '0644'
+
+- name: Install containerd.io (RedHat)
+  dnf:
+    name: containerd.io
+    state: present
+
+- name: Configure containerd with SystemdCgroup (RedHat)
+  include_tasks: configure-containerd.yml

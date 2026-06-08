@@ -1,0 +1,31 @@
+---
+# =============================================================================
+# 通用：配置 containerd（两个发行版共享此逻辑）
+# =============================================================================
+- name: Create containerd config directory
+  file:
+    path: /etc/containerd
+    state: directory
+
+- name: Generate default containerd config
+  command: containerd config default
+  register: containerd_config_out
+  changed_when: false
+
+- name: Write default containerd config
+  copy:
+    dest: /etc/containerd/config.toml
+    content: "{{ containerd_config_out.stdout }}"
+
+- name: Enable SystemdCgroup in containerd config
+  replace:
+    path: /etc/containerd/config.toml
+    regexp: 'SystemdCgroup = false'
+    replace: 'SystemdCgroup = true'
+  notify: Restart containerd
+
+- name: Ensure containerd is started and enabled
+  systemd:
+    name: containerd
+    state: started
+    enabled: yes

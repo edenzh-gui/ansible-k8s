@@ -1,0 +1,46 @@
+---
+# =============================================================================
+# Debian / Ubuntu：通过 Docker 官方 APT 仓库安装 containerd
+# =============================================================================
+- name: Install required packages for containerd (Debian)
+  apt:
+    name:
+      - curl
+      - gnupg2
+      - software-properties-common
+      - apt-transport-https
+      - ca-certificates
+    state: present
+    update_cache: yes
+
+- name: Create keyring directory for Docker (Debian)
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: Add Docker GPG key (Debian)
+  get_url:
+    url: "https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg"
+    dest: /etc/apt/keyrings/docker.asc
+    mode: '0644'
+    force: yes
+
+- name: Add Docker APT repository (Debian)
+  apt_repository:
+    repo: >-
+      deb [arch={{ 'amd64' if ansible_architecture == 'x86_64' else 'arm64' }}
+      signed-by=/etc/apt/keyrings/docker.asc]
+      https://download.docker.com/linux/{{ ansible_distribution | lower }}
+      {{ ansible_distribution_release }} stable
+    state: present
+    filename: docker
+
+- name: Install containerd.io (Debian)
+  apt:
+    name: containerd.io
+    state: present
+    update_cache: yes
+
+- name: Configure containerd with SystemdCgroup (Debian)
+  include_tasks: configure-containerd.yml

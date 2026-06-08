@@ -1,4 +1,8 @@
 ---
+# =============================================================================
+# Play 1: 所有节点基础准备
+# 适配多发行版（Debian/Ubuntu/CentOS/Rocky 等）
+# =============================================================================
 - name: Prepare all nodes for Kubernetes
   hosts: k8s_cluster
   roles:
@@ -6,12 +10,31 @@
     - containerd
     - kubernetes-base
 
-- name: Initialize Kubernetes Master
+# =============================================================================
+# Play 2: 高可用组件部署（仅在多 Master 模式下执行）
+# 在所有 Master 节点部署 HAProxy + Keepalived，建立 VIP 负载均衡
+# =============================================================================
+- name: Deploy HA components (HAProxy + Keepalived) on Master nodes
   hosts: kube_master
+  roles:
+    - haproxy
+    - keepalived
+  when: groups['kube_master'] | length > 1
+
+# =============================================================================
+# Play 3: 初始化 Kubernetes 控制平面
+# 支持单 Master 和多 Master HA 两种模式（自动判断）
+# =============================================================================
+- name: Initialize Kubernetes Master nodes
+  hosts: kube_master
+  serial: 1  # 逐台执行，确保第一个 Master 先完成初始化再让其余 Master 加入
   roles:
     - master
 
-- name: Join Worker Nodes
+# =============================================================================
+# Play 4: Worker 节点加入集群
+# =============================================================================
+- name: Join Worker Nodes to cluster
   hosts: kube_node
   roles:
     - worker

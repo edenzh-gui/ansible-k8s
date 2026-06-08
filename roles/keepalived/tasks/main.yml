@@ -1,0 +1,49 @@
+---
+# =============================================================================
+# 安装 Keepalived（按 OS 类型选择包管理器）
+# =============================================================================
+- name: Install keepalived (Debian)
+  apt:
+    name: keepalived
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+- name: Install keepalived (RedHat)
+  dnf:
+    name: keepalived
+    state: present
+  when: ansible_os_family == "RedHat"
+
+# =============================================================================
+# 部署健康检查脚本（检查 HAProxy 端口是否存活）
+# =============================================================================
+- name: Deploy HAProxy health check script for Keepalived
+  copy:
+    dest: /etc/keepalived/check_haproxy.sh
+    content: |
+      #!/bin/bash
+      # 检查 HAProxy 是否正常监听 APIServer 端口
+      # 若不可用，Keepalived 将降低优先级并将 VIP 漂移到其他节点
+      ss -tnlp | grep -q ":{{ haproxy_port }}" || exit 1
+    owner: root
+    group: root
+    mode: '0755'
+
+# =============================================================================
+# 配置 Keepalived（使用 Jinja2 模板）
+# =============================================================================
+- name: Deploy Keepalived configuration
+  template:
+    src: keepalived.conf.j2
+    dest: /etc/keepalived/keepalived.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart keepalived
+
+- name: Ensure keepalived is started and enabled
+  systemd:
+    name: keepalived
+    state: started
+    enabled: yes
