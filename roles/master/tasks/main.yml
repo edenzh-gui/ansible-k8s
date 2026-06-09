@@ -54,7 +54,7 @@
     group: "{{ ansible_user }}"
     mode: '0755'
 
-- name: Copy admin.conf to user's .kube/config
+- name: Copy admin.conf to user's .kube/config (first master)
   copy:
     src: /etc/kubernetes/admin.conf
     dest: "{{ user_home }}/.kube/config"
@@ -62,6 +62,7 @@
     owner: "{{ ansible_user }}"
     group: "{{ ansible_user }}"
     mode: '0600'
+  when: inventory_hostname == groups['kube_master'][0]
 
 # =============================================================================
 # 部署 Flannel 网络插件（仅在第一个 master 上运行一次）
@@ -139,3 +140,18 @@
     - ha_enabled | bool
     - inventory_hostname != groups['kube_master'][0]
     - not k8s_admin_conf_extra.stat.exists
+
+# =============================================================================
+# HA 模式：为其余 Master 节点配置 kubectl
+# =============================================================================
+- name: Copy admin.conf to user's .kube/config (extra masters)
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "{{ user_home }}/.kube/config"
+    remote_src: yes
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0600'
+  when:
+    - ha_enabled | bool
+    - inventory_hostname != groups['kube_master'][0]

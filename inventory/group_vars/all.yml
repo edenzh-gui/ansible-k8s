@@ -27,8 +27,8 @@ service_cidr: "10.96.0.0/12"
 # VIP 绑定的网卡名（使用 ip addr 或 ifconfig 查看，通常是 eth0 或 ens18 等）
 ha_vip_interface: "eth0"
 
-# HAProxy 监听端口（通常与 APIServer 端口一致）
-haproxy_port: 6443
+# HAProxy 监听端口（与 APIServer 端口 6443 错开，避免冲突）
+haproxy_port: 16443
 
 # =============================================================================
 # CNI 网络插件配置

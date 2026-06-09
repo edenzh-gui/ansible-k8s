@@ -17,9 +17,10 @@
 - name: Deploy HA components (HAProxy + Keepalived) on Master nodes
   hosts: kube_master
   roles:
-    - haproxy
-    - keepalived
-  when: groups['kube_master'] | length > 1
+    - role: haproxy
+      when: groups['kube_master'] | length > 1
+    - role: keepalived
+      when: groups['kube_master'] | length > 1
 
 # =============================================================================
 # Play 3: 初始化 Kubernetes 控制平面
