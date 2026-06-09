@@ -9,11 +9,12 @@
 | 特性 | 说明 |
 |------|------|
 | 🐧 多发行版支持 | Ubuntu 20.04/22.04/24.04、Debian 11/12、CentOS Stream 9、Rocky/AlmaLinux 9 |
-| ☸️ 高可用 HA 模式 | HAProxy + Keepalived 实现 VIP 浮动，支持多 Master 节点，单 Master 宕机不影响集群 |
+| ☸️ 高可用 HA 模式 | Nginx + Keepalived 实现 VIP 浮动，支持多 Master 节点，单 Master 宕机不影响集群 |
 | 🔄 自动模式检测 | 根据 `hosts.ini` 中的 Master 数量自动选择单 Master 或 HA 模式，无需手动配置 |
 | 🔒 版本锁定 | 防止意外升级 kubelet/kubeadm/kubectl |
 | 📦 Containerd | 集成 SystemdCgroup，符合 K8s 最佳实践 |
 | 🕸️ Flannel CNI | 自动部署 Pod 网络（`10.244.0.0/16`） |
+| ⚡ IPVS 代理模式 | kube-proxy 使用 IPVS 模式，内核级哈希查找，性能优于 iptables |
 
 ---
 
@@ -38,10 +39,10 @@ ansible-k8s/
 ├── playbooks/
 │   └── cluster.yml                  # 入口 Playbook
 └── roles/
-    ├── common/                      # 基础环境准备（多发行版）
+    ├── common/                      # 基础环境准备（多发行版）+ IPVS 内核模块
     ├── containerd/                  # 安装容器运行时（多发行版）
     ├── kubernetes-base/             # 安装 kubeadm/kubelet/kubectl（多发行版）
-    ├── haproxy/                     # [HA] 安装并配置 HAProxy 负载均衡
+    ├── nginx/                       # [HA] 安装并配置 Nginx 负载均衡（stream 模块）
     ├── keepalived/                  # [HA] 安装并配置 Keepalived 虚拟 IP
     ├── master/                      # Master 节点初始化（支持单 Master 和 HA）
     └── worker/                      # Worker 节点加入集群
@@ -87,12 +88,13 @@ ansible_ssh_pass=您的登录密码
 ```ini
 [kube_master]
 master1 ansible_host=192.168.9.41 keepalived_priority=100
-master2 ansible_host=192.168.9.44 keepalived_priority=90
-master3 ansible_host=192.168.9.45 keepalived_priority=80
+master2 ansible_host=192.168.9.42 keepalived_priority=90
+master3 ansible_host=192.168.9.43 keepalived_priority=80
 
 [kube_node]
-worker1 ansible_host=192.168.9.42
-worker2 ansible_host=192.168.9.43
+worker1 ansible_host=192.168.9.44
+worker2 ansible_host=192.168.9.45
+worker2 ansible_host=192.168.9.46
 
 [all:vars]
 ansible_user=root
@@ -109,7 +111,7 @@ ha_vip_ip: "192.168.9.100"
 ha_vip_interface: "eth0"
 ```
 
-> **HA 架构说明**：HAProxy 和 Keepalived 会自动部署在所有 Master 节点上。Keepalived 通过 VRRP 协议竞争 VIP，优先级（`keepalived_priority`）最高的节点持有 VIP。当该节点的 HAProxy 异常时，VIP 自动漂移到下一个节点。
+> **HA 架构说明**：Nginx 和 Keepalived 会自动部署在所有 Master 节点上。Nginx 使用 stream 模块做 TCP 四层负载均衡，将流量轮询转发到各 Master 的 APIServer。Keepalived 通过 VRRP 协议竞争 VIP，优先级（`keepalived_priority`）最高的节点持有 VIP。当该节点的 Nginx 异常时，VIP 自动漂移到下一个节点。
 
 ### 3. 测试连通性
 
@@ -135,6 +137,13 @@ kubectl get nodes
 
 所有节点状态为 `Ready` 即表示部署成功。
 
+验证 IPVS 模式是否生效：
+
+```bash
+kubectl get configmap kube-proxy -n kube-system -o yaml | grep mode
+ipvsadm -Ln
+```
+
 ---
 
 ## 🏗️ HA 集群架构
@@ -145,11 +154,11 @@ kubectl get nodes
         ▼
 ┌───────────────────┐
 │  VIP: 192.168.x.x │  ← Keepalived 浮动 IP（自动漂移）
-│  端口: 6443        │
+│  端口: 16443       │
 └─────────┬─────────┘
           │
   ┌───────┴────────┐
-  │  HAProxy (每台  │  ← 轮询转发到后端 APIServer
+  │  Nginx (每台    │  ← stream 模块轮询转发到后端 APIServer :6443
   │  Master 都有)   │
   └───────┬────────┘
           │

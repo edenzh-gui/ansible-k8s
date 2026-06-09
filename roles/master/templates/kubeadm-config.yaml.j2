@@ -1,0 +1,18 @@
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+networking:
+  podSubnet: "{{ pod_network_cidr }}"
+  serviceSubnet: "{{ service_cidr }}"
+{% if ha_enabled | bool %}
+controlPlaneEndpoint: "{{ ha_vip_ip }}:{{ ha_lb_port }}"
+{% endif %}
+---
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+mode: "{{ kube_proxy_mode | default('ipvs') }}"
+ipvs:
+  scheduler: "rr"
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: systemd

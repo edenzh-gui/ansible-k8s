@@ -1,0 +1,55 @@
+---
+# =============================================================================
+# 安装 Nginx（按 OS 类型选择包管理器）
+# =============================================================================
+- name: Install nginx and stream module (Debian)
+  apt:
+    name:
+      - nginx
+      - libnginx-mod-stream
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+- name: Install nginx (RedHat)
+  dnf:
+    name: nginx
+    state: present
+  when: ansible_os_family == "RedHat"
+
+# =============================================================================
+# 配置 Nginx Stream 模块（TCP 四层负载均衡）
+# =============================================================================
+- name: Create nginx stream config directory
+  file:
+    path: /etc/nginx/stream.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Ensure nginx.conf includes stream config
+  blockinfile:
+    path: /etc/nginx/nginx.conf
+    block: |
+      stream {
+          include /etc/nginx/stream.d/*.conf;
+      }
+    marker: "# {mark} ANSIBLE MANAGED - K8S STREAM LB"
+    insertafter: EOF
+  notify: Restart nginx
+
+- name: Deploy K8s APIServer stream LB config
+  template:
+    src: k8s-apiserver-lb.conf.j2
+    dest: /etc/nginx/stream.d/k8s-apiserver-lb.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart nginx
+
+- name: Ensure nginx is started and enabled
+  systemd:
+    name: nginx
+    state: started
+    enabled: yes

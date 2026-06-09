@@ -1,0 +1,19 @@
+#---------------------------------------------------------------------
+# K8s APIServer 负载均衡（由 Ansible 自动生成，请勿手动修改）
+# 使用 Nginx stream 模块将 VIP:{{ ha_lb_port }} 的流量
+# 负载均衡到各 Master 节点的 APIServer :6443
+#---------------------------------------------------------------------
+
+upstream kubernetes_apiserver {
+    least_conn;
+{% for host in groups['kube_master'] %}
+    server {{ hostvars[host]['ansible_host'] }}:6443 max_fails=3 fail_timeout=10s;
+{% endfor %}
+}
+
+server {
+    listen {{ ha_lb_port }};
+    proxy_pass kubernetes_apiserver;
+    proxy_connect_timeout 10s;
+    proxy_timeout 300s;
+}

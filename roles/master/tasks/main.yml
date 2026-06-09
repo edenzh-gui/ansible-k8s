@@ -14,12 +14,19 @@
     path: /etc/kubernetes/admin.conf
   register: k8s_admin_conf
 
+# --- 生成 kubeadm 初始化配置文件（包含 IPVS 模式） ---
+- name: Deploy kubeadm init config file
+  template:
+    src: kubeadm-config.yaml.j2
+    dest: /tmp/kubeadm-config.yaml
+  when:
+    - not k8s_admin_conf.stat.exists
+    - inventory_hostname == groups['kube_master'][0]
+
 # --- 单 Master 初始化 ---
 - name: Initialize Kubernetes cluster (single master)
   command: >
-    kubeadm init
-    --pod-network-cidr={{ pod_network_cidr }}
-    --service-cidr={{ service_cidr }}
+    kubeadm init --config=/tmp/kubeadm-config.yaml
   register: kubeadm_init
   when:
     - not k8s_admin_conf.stat.exists
@@ -28,11 +35,8 @@
 # --- HA 多 Master 初始化（第一个 master 节点执行） ---
 - name: Initialize Kubernetes cluster (HA mode, first master)
   command: >
-    kubeadm init
-    --control-plane-endpoint="{{ ha_vip_ip }}:{{ haproxy_port }}"
+    kubeadm init --config=/tmp/kubeadm-config.yaml
     --upload-certs
-    --pod-network-cidr={{ pod_network_cidr }}
-    --service-cidr={{ service_cidr }}
   register: kubeadm_init_ha
   when:
     - not k8s_admin_conf.stat.exists
@@ -40,7 +44,7 @@
     - inventory_hostname == groups['kube_master'][0]
 
 # =============================================================================
-# 配置 kubectl（所有 master 节点执行）
+# 配置 kubectl（第一个 master 节点先执行）
 # =============================================================================
 - name: Set home directory path
   set_fact:
@@ -67,6 +71,16 @@
 # =============================================================================
 # 部署 Flannel 网络插件（仅在第一个 master 上运行一次）
 # =============================================================================
+- name: Check if Flannel is already deployed
+  command: kubectl get daemonset -n kube-flannel kube-flannel-ds
+  become_user: "{{ ansible_user }}"
+  environment:
+    KUBECONFIG: "{{ user_home }}/.kube/config"
+  register: flannel_check
+  changed_when: false
+  failed_when: false
+  when: inventory_hostname == groups['kube_master'][0]
+
 - name: Deploy Flannel network plugin
   command: kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
   become_user: "{{ ansible_user }}"
@@ -74,7 +88,7 @@
     KUBECONFIG: "{{ user_home }}/.kube/config"
   when:
     - inventory_hostname == groups['kube_master'][0]
-    - not k8s_admin_conf.stat.exists
+    - flannel_check.rc != 0
 
 # =============================================================================
 # 提取加入令牌（仅第一个 Master 执行，结果共享给所有节点）

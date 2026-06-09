@@ -12,12 +12,12 @@
 
 # =============================================================================
 # Play 2: 高可用组件部署（仅在多 Master 模式下执行）
-# 在所有 Master 节点部署 HAProxy + Keepalived，建立 VIP 负载均衡
+# 在所有 Master 节点部署 Nginx + Keepalived，建立 VIP 负载均衡
 # =============================================================================
-- name: Deploy HA components (HAProxy + Keepalived) on Master nodes
+- name: Deploy HA components (Nginx + Keepalived) on Master nodes
   hosts: kube_master
   roles:
-    - role: haproxy
+    - role: nginx
       when: groups['kube_master'] | length > 1
     - role: keepalived
       when: groups['kube_master'] | length > 1

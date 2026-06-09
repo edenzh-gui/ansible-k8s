@@ -79,3 +79,48 @@
 
 - name: Apply sysctl params without reboot
   command: sysctl --system
+
+# =============================================================================
+# 通用：加载 IPVS 所需内核模块（kube-proxy IPVS 模式）
+# =============================================================================
+- name: Add IPVS kernel modules to load at boot
+  copy:
+    dest: /etc/modules-load.d/ipvs.conf
+    content: |
+      ip_vs
+      ip_vs_rr
+      ip_vs_wrr
+      ip_vs_sh
+      nf_conntrack
+
+- name: Load IPVS kernel modules immediately
+  modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - ip_vs
+    - ip_vs_rr
+    - ip_vs_wrr
+    - ip_vs_sh
+    - nf_conntrack
+
+# =============================================================================
+# 通用：安装 IPVS 管理工具
+# =============================================================================
+- name: Install ipvsadm and ipset (Debian)
+  apt:
+    name:
+      - ipvsadm
+      - ipset
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+- name: Install ipvsadm and ipset (RedHat)
+  dnf:
+    name:
+      - ipvsadm
+      - ipset
+    state: present
+  when: ansible_os_family == "RedHat"
+
